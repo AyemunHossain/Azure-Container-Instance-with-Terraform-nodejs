@@ -1,0 +1,45 @@
+name: Build and Deploy to ACI
+
+on:
+  push:
+    branches: ["main"]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Log in to Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Log in to ACR
+        run: |
+          az acr login --name ${{ secrets.RG }}
+
+      - name: Build and Push Docker Image
+        run: |
+          IMAGE_TAG=${{ github.sha }}
+          IMAGE_NAME=${{ secrets.RG }}.azurecr.io/${{ secrets.IMAGE_NAME }}:$IMAGE_TAG
+          docker build -t $IMAGE_NAME .
+          docker push $IMAGE_NAME
+          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+
+      - name: Create new ACI
+        run: |
+          az container create \
+            --resource-group tf-vm-rg2 \
+            --name ${{ secrets.IMAGE_NAME }}-aci \
+            --image ${{ secrets.RG }}.azurecr.io/${{ secrets.IMAGE_NAME }}:${{ env.IMAGE_TAG }} \
+            --os-type Linux \
+            --cpu 1 \
+            --memory 1 \
+            --registry-login-server ${{ secrets.RG }}.azurecr.io \
+            --registry-username ${{ secrets.ACR_USERNAME }} \
+            --registry-password ${{ secrets.ACR_PASSWORD }} \
+            --dns-name-label ${{ secrets.IMAGE_NAME }} \
+            --ports 3000
